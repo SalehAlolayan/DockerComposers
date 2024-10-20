@@ -1,0 +1,77 @@
+---
+# steps:
+# mkdir -p /docker-volumes/guacamoledb/guacamoledb-data &&  mkdir -p /docker-volumes/guacamole/guacamole_home && mkdir -p /docker-volumes/drive && mkdir -p /docker-volumes/record
+# docker pull guacamole/guacamole
+# docker pull guacamole/guacd
+# docker pull mariadb
+# docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql > initdb.sql
+# docker-compose -f guacamole.yml up -d guacamoledb
+# docker cp initdb.sql guacamoledb:/initdb.sql
+# docker exec -it guacamoledb bash
+# cat /initdb.sql | mariadb -u root -p guacamole_db
+# exit
+# docker-compose -f guacamole.yml down
+# Auto update cron job
+#0 7 * * * /usr/libexec/docker/cli-plugins/docker-compose -f guacamole.yaml down && /usr/libexec/docker/cli-plugins/docker-compose -f guacamole.yaml pull && /usr/libexec/docker/cli-plugins/docker-compose -f guacamole.yaml up -d --remove-orphans && /usr/bin/docker image prune -f > /dev/null
+networks:
+  br-gucamole:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: "192.168.0.0/24"
+        gateway: "192.168.0.1"
+
+services:
+
+  guacamoledb:
+    container_name: guacamoledb
+    image: mariadb:lts
+    restart: unless-stopped
+    networks:
+      - br-gucamole
+    environment:
+      MARIADB_ROOT_PASSWORD: 'ROOTPASS'
+      MARIADB_DATABASE: 'guacamole_db'
+      MARIADB_USER: 'guacamole_user'
+      MARIADB_PASSWORD: 'USERPASS'
+      MARIADB_AUTO_UPGRADE: 1
+      MARIADB_DISABLE_UPGRADE_BACKUP: 1
+    volumes:
+      - /docker-volumes/guacamoledb/guacamoledb-data:/var/lib/mysql
+
+  guacd:
+    container_name: guacd
+    image: guacamole/guacd:latest
+    restart: unless-stopped
+    networks:
+      - br-gucamole
+    volumes:
+    - /docker-volumes/record:/var/lib/guacamole/recordings:rw
+    - /docker-volumes/drive:/drive:rw
+
+  guacamole:
+    container_name: guacamole
+    image: 'guacamole/guacamole:latest'
+    restart: unless-stopped
+    networks:
+      - br-gucamole
+    ports:
+      - '8080:8080'
+    environment:
+      GUACD_HOSTNAME: "guacd"
+      MYSQL_HOSTNAME: "guacamoledb"
+      MYSQL_DATABASE: "guacamole_db"
+      MYSQL_USER: "guacamole_user"
+      MYSQL_PASSWORD: "USERPASS"
+      TOTP_ENABLED: "true"
+      TOTP_ISSUER: "Guacamole-01"
+      RECORDING_SEARCH_PATH: '/var/lib/guacamole/recordings'
+    volumes:
+    - /docker-volumes/guacamole/guacamole_home:/opt/guacamole_home
+    - /docker-volumes/record:/var/lib/guacamole/recordings:ro
+    - /docker-volumes/drive:/drive:rw
+    - /var/log/guacamole:/usr/local/tomcat/logs
+    depends_on:
+      - guacamoledb
+      - guacd
